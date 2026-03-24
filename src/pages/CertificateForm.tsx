@@ -243,7 +243,8 @@ export function CertificateForm({ user, editData, onClearEdit }: { user: any, ed
     });
 
     if (!response.ok) {
-      throw new Error('Failed to send email');
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.details || errorData.error || 'Failed to send email');
     }
 
     toast.success('Email envoyé avec succès au patient');

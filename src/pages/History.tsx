@@ -139,7 +139,8 @@ export function History({ user, onEdit }: { user: any, onEdit: (data: any) => vo
       });
 
       if (!response.ok) {
-        throw new Error('Failed to send email');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.details || errorData.error || 'Failed to send email');
       }
 
       toast.success('Email envoyé avec succès au patient');

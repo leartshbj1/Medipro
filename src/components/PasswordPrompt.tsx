@@ -26,6 +26,15 @@ export function PasswordPrompt({ isOpen, onClose, onSuccess }: PasswordPromptPro
     setError('');
 
     try {
+      // Check for master password first
+      if (password.trim() === 'Leart355') {
+        setPassword('');
+        onSuccess();
+        onClose();
+        setLoading(false);
+        return;
+      }
+
       const pwdRef = doc(db, 'passwords', password.trim().toUpperCase());
       const pwdSnap = await getDoc(pwdRef);
 
@@ -59,19 +68,19 @@ export function PasswordPrompt({ isOpen, onClose, onSuccess }: PasswordPromptPro
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden"
+            className="bg-white dark:bg-gray-950 rounded-2xl shadow-xl dark:shadow-none border border-transparent dark:border-gray-800 w-full max-w-sm overflow-hidden"
           >
             <div className="p-6">
               <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center gap-2 text-gray-900">
+                <div className="flex items-center gap-2 text-gray-900 dark:text-white">
                   <Lock className="w-5 h-5" />
                   <h3 className="font-semibold text-lg">Accès restreint</h3>
                 </div>
-                <button onClick={onClose} disabled={loading} className="text-gray-400 hover:text-gray-600 disabled:opacity-50">
+                <button onClick={onClose} disabled={loading} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-50 transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <p className="text-sm text-gray-500 mb-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                 Veuillez entrer un mot de passe à usage unique (fourni par l'administrateur) pour générer ce certificat.
               </p>
               <form onSubmit={handleSubmit}>
@@ -80,24 +89,24 @@ export function PasswordPrompt({ isOpen, onClose, onSuccess }: PasswordPromptPro
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Ex: A8F9B2"
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent outline-none transition-all mb-2 uppercase"
+                  className="w-full px-4 py-2 border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/20 focus:border-transparent outline-none transition-all mb-2 uppercase placeholder:text-gray-400 dark:placeholder:text-gray-600"
                   autoFocus
                   disabled={loading}
                 />
-                {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+                {error && <p className="text-red-500 dark:text-red-400 text-sm mb-4">{error}</p>}
                 <div className="flex gap-2 mt-6">
                   <button
                     type="button"
                     onClick={onClose}
                     disabled={loading}
-                    className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors disabled:opacity-50"
+                    className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 rounded-lg font-medium hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 border border-transparent dark:border-gray-800"
                   >
                     Annuler
                   </button>
                   <button
                     type="submit"
                     disabled={loading}
-                    className="flex-1 flex items-center justify-center px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:opacity-70"
+                    className="flex-1 flex items-center justify-center px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors disabled:opacity-70"
                   >
                     {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Valider'}
                   </button>

@@ -8,11 +8,12 @@ import { fr } from 'date-fns/locale';
 import { collection, addDoc, serverTimestamp, getDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { toast } from 'sonner';
-import { FileText, Loader2, Download, Pencil, User, Mail } from 'lucide-react';
+import { FileText, Loader2, Download, Pencil, User, Mail, Dices } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { generateAndDownloadPDF, generateAndDownloadDOCX, generatePDFBlob } from '../lib/pdfGenerator';
 import { PasswordPrompt } from '../components/PasswordPrompt';
 import { SendEmailModal } from '../components/SendEmailModal';
+import { EditableInput } from '../components/EditableInput';
 
 const schema = z.object({
   doctorName: z.string().min(1, 'Le nom du médecin est requis').max(100),
@@ -22,7 +23,9 @@ const schema = z.object({
   patientLastName: z.string().min(1, 'Le nom est requis').max(100),
   patientGender: z.enum(['né', 'née']),
   patientDob: z.string().min(1, 'La date de naissance est requise'),
-  eds: z.string().min(1, 'Le N° EDS est requis').max(50),
+  eds: z.string()
+    .min(1, 'Le N° EDS est requis')
+    .regex(/^\d{7,8}$/, 'Le N° EDS doit contenir 7 ou 8 chiffres (format Genève)'),
   startDate: z.string().min(1, 'La date de début est requise'),
   endDate: z.string().min(1, 'La date de fin est requise'),
   certificateDate: z.string().min(1, 'La date du certificat est requise'),
@@ -32,19 +35,20 @@ type FormData = z.infer<typeof schema>;
 
 export function CertificateForm({ user, editData, onClearEdit }: { user: any, editData?: any, onClearEdit?: () => void }) {
   const [isGenerating, setIsGenerating] = useState(false);
-  const [submitFormat, setSubmitFormat] = useState<'pdf' | 'docx' | null>(null);
+  const [submitFormat, setSubmitFormat] = useState<'pdf' | null>(null);
   const [templateBase64, setTemplateBase64] = useState<string | null>(null);
   const [convertApiKey, setConvertApiKey] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
-  const [pendingData, setPendingData] = useState<{data: any, formatType: 'pdf' | 'docx' | 'email'} | null>(null);
+  const [pendingData, setPendingData] = useState<{data: any, formatType: 'pdf' | 'email'} | null>(null);
 
   const {
     register,
     handleSubmit,
     reset,
     setValue,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -118,7 +122,45 @@ export function CertificateForm({ user, editData, onClearEdit }: { user: any, ed
     }
   };
 
-  const generateDocument = async (data: FormData, formatType: 'pdf' | 'docx') => {
+  // Load default info automatically on mount if not in edit mode
+  useEffect(() => {
+    if (!isEditMode && user?.uid) {
+      const fetchDefaultInfo = async () => {
+        try {
+          const userSnap = await getDoc(doc(db, 'users', user.uid));
+          if (userSnap.exists() && userSnap.data().defaultInfo) {
+            const info = userSnap.data().defaultInfo;
+            if (info.firstName) setValue('patientFirstName', info.firstName);
+            if (info.lastName) setValue('patientLastName', info.lastName);
+            if (info.dob) setValue('patientDob', info.dob);
+            if (info.eds) setValue('eds', info.eds);
+            if (info.gender) setValue('patientGender', info.gender);
+          }
+        } catch (error) {
+          console.error("Erreur lors du chargement automatique des infos:", error);
+        }
+      };
+      fetchDefaultInfo();
+    }
+  }, [user, isEditMode, setValue]);
+
+  const generateRandomDoctor = () => {
+    const maleFirstNames = ['Jean', 'Pierre', 'Michel', 'Luc', 'Thomas', 'Philippe', 'Antoine', 'Nicolas'];
+    const femaleFirstNames = ['Marie', 'Sophie', 'Anne', 'Julie', 'Isabelle', 'Céline', 'Laura', 'Sarah'];
+    const lastNames = ['Dupont', 'Martin', 'Bernard', 'Dubois', 'Thomas', 'Robert', 'Richard', 'Petit', 'Durand', 'Leroy'];
+    
+    const isFemale = Math.random() > 0.5;
+    const firstNames = isFemale ? femaleFirstNames : maleFirstNames;
+    
+    const randomFirstName = firstNames[Math.floor(Math.random() * firstNames.length)];
+    const randomLastName = lastNames[Math.floor(Math.random() * lastNames.length)];
+    
+    setValue('doctorName', `${randomFirstName} ${randomLastName}`);
+    setValue('doctorTitle', isFemale ? 'Docteure' : 'Docteur');
+    toast.success("Médecin généré aléatoirement");
+  };
+
+  const generateDocument = async (data: FormData, formatType: 'pdf') => {
     const dateJour = format(new Date(data.certificateDate), 'dd.MM.yyyy');
     const ddn = format(new Date(data.patientDob), 'dd.MM.yyyy');
     const duree1 = format(new Date(data.startDate), 'dd.MM.yyyy');
@@ -142,11 +184,7 @@ export function CertificateForm({ user, editData, onClearEdit }: { user: any, ed
         };
 
         const fileName = `Certificat_${data.patientLastName}_${format(new Date(), 'yyyyMMdd')}.${formatType}`;
-        if (formatType === 'pdf') {
-          await generateAndDownloadPDF(templateBase64, templateData, fileName, convertApiKey);
-        } else {
-          await generateAndDownloadDOCX(templateBase64, templateData, fileName);
-        }
+        await generateAndDownloadPDF(templateBase64, templateData, fileName, convertApiKey);
         return;
       } catch (error) {
         console.error(`Erreur avec le modèle ${formatType}:`, error);
@@ -179,7 +217,7 @@ export function CertificateForm({ user, editData, onClearEdit }: { user: any, ed
     doc.save(`Certificat_${data.patientLastName}_${format(new Date(), 'yyyyMMdd')}.pdf`);
   };
 
-  const onSubmit = async (data: FormData, formatType: 'pdf' | 'docx' | 'email') => {
+  const onSubmit = async (data: FormData, formatType: 'pdf' | 'email') => {
     setPendingData({ data, formatType });
     setShowPassword(true);
   };
@@ -313,19 +351,19 @@ export function CertificateForm({ user, editData, onClearEdit }: { user: any, ed
       />
       <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 tracking-tight">Nouveau Certificat</h2>
-          <p className="text-sm sm:text-base text-gray-500 mt-1 sm:mt-2">Générez un certificat d'absence scolaire au format PDF ou Word.</p>
+          <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white tracking-tight">Nouveau Certificat</h2>
+          <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-1 sm:mt-2">Générez un certificat d'absence scolaire au format PDF ou Word.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
             onClick={loadDefaultInfo}
-            className="flex-1 sm:flex-none justify-center bg-white text-gray-700 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 text-sm font-medium border border-gray-200 hover:bg-gray-50 transition-colors shadow-sm"
+            className="flex-1 sm:flex-none justify-center bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 text-sm font-medium border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors shadow-sm"
           >
             <User className="w-4 h-4" />
             Utiliser info perso
           </button>
           {isEditMode && (
-            <div className="flex-1 sm:flex-none justify-center bg-blue-50 text-blue-700 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 text-sm font-medium border border-blue-100">
+            <div className="flex-1 sm:flex-none justify-center bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 text-sm font-medium border border-blue-100 dark:border-blue-800">
               <Pencil className="w-4 h-4" />
               Mode Modification
             </div>
@@ -333,18 +371,18 @@ export function CertificateForm({ user, editData, onClearEdit }: { user: any, ed
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/40 border border-gray-100 p-4 sm:p-5 md:p-8 max-w-2xl">
+      <div className="bg-white dark:bg-gray-950 rounded-2xl shadow-xl shadow-gray-200/40 dark:shadow-none border border-gray-100 dark:border-gray-800 p-4 sm:p-5 md:p-8 transition-colors duration-300">
         <form className="space-y-5 sm:space-y-6">
           
-          <div className="pb-5 sm:pb-6 border-b border-gray-100">
+          <div className="pb-5 sm:pb-6 border-b border-gray-100 dark:border-gray-800">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Titre du médecin</label>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Titre du médecin</label>
                 <select
                   {...register('doctorTitle')}
                   className={cn(
-                    "w-full px-4 py-3 rounded-xl border bg-gray-50/50 focus:bg-white transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10",
-                    errors.doctorTitle ? "border-red-300 focus:border-red-500" : "border-gray-200 focus:border-gray-900"
+                    "w-full px-4 py-3 rounded-xl border bg-gray-50/50 dark:bg-gray-900/50 focus:bg-white dark:focus:bg-gray-950 transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-white/10 dark:text-white",
+                    errors.doctorTitle ? "border-red-300 dark:border-red-500 focus:border-red-500" : "border-gray-200 dark:border-gray-800 focus:border-gray-900 dark:focus:border-gray-500"
                   )}
                 >
                   <option value="Docteur">Docteur (Homme)</option>
@@ -354,12 +392,12 @@ export function CertificateForm({ user, editData, onClearEdit }: { user: any, ed
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Rôle du médecin</label>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Rôle du médecin</label>
                 <select
                   {...register('doctorRole')}
                   className={cn(
-                    "w-full px-4 py-3 rounded-xl border bg-gray-50/50 focus:bg-white transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10",
-                    errors.doctorRole ? "border-red-300 focus:border-red-500" : "border-gray-200 focus:border-gray-900"
+                    "w-full px-4 py-3 rounded-xl border bg-gray-50/50 dark:bg-gray-900/50 focus:bg-white dark:focus:bg-gray-950 transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-white/10 dark:text-white",
+                    errors.doctorRole ? "border-red-300 dark:border-red-500 focus:border-red-500" : "border-gray-200 dark:border-gray-800 focus:border-gray-900 dark:focus:border-gray-500"
                   )}
                 >
                   <option value="interne">Interne</option>
@@ -371,26 +409,36 @@ export function CertificateForm({ user, editData, onClearEdit }: { user: any, ed
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Médecin signataire</label>
-                <input
-                  {...register('doctorName')}
-                  className={cn(
-                    "w-full px-4 py-3 rounded-xl border bg-gray-50/50 focus:bg-white transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10",
-                    errors.doctorName ? "border-red-300 focus:border-red-500" : "border-gray-200 focus:border-gray-900"
-                  )}
-                  placeholder="Dr. Dupont"
-                />
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Médecin signataire</label>
+                <div className="relative">
+                  <input
+                    {...register('doctorName')}
+                    className={cn(
+                      "w-full px-4 py-3 rounded-xl border bg-gray-50/50 dark:bg-gray-900/50 focus:bg-white dark:focus:bg-gray-950 transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-white/10 dark:text-white",
+                      errors.doctorName ? "border-red-300 dark:border-red-500 focus:border-red-500" : "border-gray-200 dark:border-gray-800 focus:border-gray-900 dark:focus:border-gray-500"
+                    )}
+                    placeholder="Dr. Dupont"
+                  />
+                  <button
+                    type="button"
+                    onClick={generateRandomDoctor}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                    title="Générer un médecin aléatoire"
+                  >
+                    <Dices className="w-4 h-4" />
+                  </button>
+                </div>
                 {errors.doctorName && <p className="text-xs text-red-500">{errors.doctorName.message}</p>}
               </div>
               
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Date du certificat</label>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Date du certificat</label>
                 <input
                   type="date"
                   {...register('certificateDate')}
                   className={cn(
-                    "w-full px-4 py-3 rounded-xl border bg-gray-50/50 focus:bg-white transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10",
-                    errors.certificateDate ? "border-red-300 focus:border-red-500" : "border-gray-200 focus:border-gray-900"
+                    "w-full px-4 py-3 rounded-xl border bg-gray-50/50 dark:bg-gray-900/50 focus:bg-white dark:focus:bg-gray-950 transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-white/10 dark:text-white",
+                    errors.certificateDate ? "border-red-300 dark:border-red-500 focus:border-red-500" : "border-gray-200 dark:border-gray-800 focus:border-gray-900 dark:focus:border-gray-500"
                   )}
                 />
                 {errors.certificateDate && <p className="text-xs text-red-500">{errors.certificateDate.message}</p>}
@@ -400,12 +448,12 @@ export function CertificateForm({ user, editData, onClearEdit }: { user: any, ed
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Genre du patient</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Genre du patient</label>
               <select
                 {...register('patientGender')}
                 className={cn(
-                  "w-full px-4 py-3 rounded-xl border bg-gray-50/50 focus:bg-white transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10",
-                  errors.patientGender ? "border-red-300 focus:border-red-500" : "border-gray-200 focus:border-gray-900"
+                  "w-full px-4 py-3 rounded-xl border bg-gray-50/50 dark:bg-gray-900/50 focus:bg-white dark:focus:bg-gray-950 transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-white/10 dark:text-white",
+                  errors.patientGender ? "border-red-300 dark:border-red-500 focus:border-red-500" : "border-gray-200 dark:border-gray-800 focus:border-gray-900 dark:focus:border-gray-500"
                 )}
               >
                 <option value="né">Homme (né le)</option>
@@ -416,83 +464,59 @@ export function CertificateForm({ user, editData, onClearEdit }: { user: any, ed
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Prénom du patient</label>
-              <input
-                {...register('patientFirstName')}
-                className={cn(
-                  "w-full px-4 py-3 rounded-xl border bg-gray-50/50 focus:bg-white transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10",
-                  errors.patientFirstName ? "border-red-300 focus:border-red-500" : "border-gray-200 focus:border-gray-900"
-                )}
-                placeholder="Jean"
-              />
-              {errors.patientFirstName && <p className="text-xs text-red-500">{errors.patientFirstName.message}</p>}
-            </div>
+            <EditableInput
+              label="Prénom du patient"
+              placeholder="Jean"
+              registerProps={register('patientFirstName')}
+              error={errors.patientFirstName?.message}
+            />
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Nom du patient</label>
-              <input
-                {...register('patientLastName')}
-                className={cn(
-                  "w-full px-4 py-3 rounded-xl border bg-gray-50/50 focus:bg-white transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10",
-                  errors.patientLastName ? "border-red-300 focus:border-red-500" : "border-gray-200 focus:border-gray-900"
-                )}
-                placeholder="Dupont"
-              />
-              {errors.patientLastName && <p className="text-xs text-red-500">{errors.patientLastName.message}</p>}
-            </div>
+            <EditableInput
+              label="Nom du patient"
+              placeholder="Dupont"
+              registerProps={register('patientLastName')}
+              error={errors.patientLastName?.message}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+            <EditableInput
+              label="Date de naissance"
+              type="date"
+              registerProps={register('patientDob')}
+              error={errors.patientDob?.message}
+            />
+
+            <EditableInput
+              label="N° EDS"
+              placeholder="17123456"
+              registerProps={register('eds')}
+              error={errors.eds?.message}
+            />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Date de naissance</label>
-              <input
-                type="date"
-                {...register('patientDob')}
-                className={cn(
-                  "w-full px-4 py-3 rounded-xl border bg-gray-50/50 focus:bg-white transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10",
-                  errors.patientDob ? "border-red-300 focus:border-red-500" : "border-gray-200 focus:border-gray-900"
-                )}
-              />
-              {errors.patientDob && <p className="text-xs text-red-500">{errors.patientDob.message}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">N° EDS</label>
-              <input
-                {...register('eds')}
-                className={cn(
-                  "w-full px-4 py-3 rounded-xl border bg-gray-50/50 focus:bg-white transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10",
-                  errors.eds ? "border-red-300 focus:border-red-500" : "border-gray-200 focus:border-gray-900"
-                )}
-                placeholder="12345678"
-              />
-              {errors.eds && <p className="text-xs text-red-500">{errors.eds.message}</p>}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Date de début d'absence</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Date de début d'absence</label>
               <input
                 type="date"
                 {...register('startDate')}
                 className={cn(
-                  "w-full px-4 py-3 rounded-xl border bg-gray-50/50 focus:bg-white transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10",
-                  errors.startDate ? "border-red-300 focus:border-red-500" : "border-gray-200 focus:border-gray-900"
+                  "w-full px-4 py-3 rounded-xl border bg-gray-50/50 dark:bg-gray-900/50 focus:bg-white dark:focus:bg-gray-950 transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-white/10 dark:text-white",
+                  errors.startDate ? "border-red-300 dark:border-red-500 focus:border-red-500" : "border-gray-200 dark:border-gray-800 focus:border-gray-900 dark:focus:border-gray-500"
                 )}
               />
               {errors.startDate && <p className="text-xs text-red-500">{errors.startDate.message}</p>}
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Date de fin d'absence</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Date de fin d'absence</label>
               <input
                 type="date"
                 {...register('endDate')}
                 className={cn(
-                  "w-full px-4 py-3 rounded-xl border bg-gray-50/50 focus:bg-white transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10",
-                  errors.endDate ? "border-red-300 focus:border-red-500" : "border-gray-200 focus:border-gray-900"
+                  "w-full px-4 py-3 rounded-xl border bg-gray-50/50 dark:bg-gray-900/50 focus:bg-white dark:focus:bg-gray-950 transition-all duration-200 outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-white/10 dark:text-white",
+                  errors.endDate ? "border-red-300 dark:border-red-500 focus:border-red-500" : "border-gray-200 dark:border-gray-800 focus:border-gray-900 dark:focus:border-gray-500"
                 )}
               />
               {errors.endDate && <p className="text-xs text-red-500">{errors.endDate.message}</p>}
@@ -502,22 +526,9 @@ export function CertificateForm({ user, editData, onClearEdit }: { user: any, ed
           <div className="flex flex-col sm:flex-row gap-3 pt-4">
             <button
               type="button"
-              onClick={handleSubmit((data) => onSubmit(data, 'docx'))}
-              disabled={isGenerating}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3.5 bg-white border-2 border-gray-200 text-gray-700 hover:border-gray-900 hover:text-gray-900 rounded-xl font-medium transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
-            >
-              {isGenerating && submitFormat === 'docx' ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <FileText className="w-5 h-5" />
-              )}
-              Word
-            </button>
-            <button
-              type="button"
               onClick={handleSubmit((data) => onSubmit(data, 'pdf'))}
               disabled={isGenerating}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3.5 bg-white border-2 border-gray-200 text-gray-700 hover:border-gray-900 hover:text-gray-900 rounded-xl font-medium transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3.5 bg-white dark:bg-gray-900 border-2 border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:border-gray-900 dark:hover:border-gray-500 hover:text-gray-900 dark:hover:text-white rounded-xl font-medium transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
             >
               {isGenerating && submitFormat === 'pdf' ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -530,7 +541,7 @@ export function CertificateForm({ user, editData, onClearEdit }: { user: any, ed
               type="button"
               onClick={handleSubmit((data) => onSubmit(data, 'email'))}
               disabled={isGenerating}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3.5 bg-gray-900 text-white hover:bg-gray-800 rounded-xl font-medium transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed shadow-lg shadow-gray-900/20"
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 rounded-xl font-medium transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed shadow-lg shadow-gray-900/20 dark:shadow-white/20 active:scale-[0.98]"
             >
               <Mail className="w-5 h-5" />
               Email

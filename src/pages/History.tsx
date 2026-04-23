@@ -4,11 +4,12 @@ import { db } from '../firebase';
 import { jsPDF } from 'jspdf';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { FileText, Download, Calendar, User, Loader2, Pencil, Trash2, Mail } from 'lucide-react';
+import { FileText, Download, Calendar, User, Loader2, Pencil, Trash2, Mail, Filter, Trash } from 'lucide-react';
 import { toast } from 'sonner';
 import { generateAndDownloadPDF, generateAndDownloadDOCX, generatePDFBlob } from '../lib/pdfGenerator';
 import { PasswordPrompt } from '../components/PasswordPrompt';
 import { SendEmailModal } from '../components/SendEmailModal';
+import { cn } from '../lib/utils';
 
 export function History({ user, onEdit }: { user: any, onEdit: (data: any) => void }) {
   const [certificates, setCertificates] = useState<any[]>([]);
@@ -16,11 +17,13 @@ export function History({ user, onEdit }: { user: any, onEdit: (data: any) => vo
   const [templateBase64, setTemplateBase64] = useState<string | null>(null);
   const [convertApiKey, setConvertApiKey] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
-  const [generatingFormat, setGeneratingFormat] = useState<'pdf' | 'docx' | 'email' | null>(null);
+  const [generatingFormat, setGeneratingFormat] = useState<'pdf' | 'email' | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [showCleanupModal, setShowCleanupModal] = useState(false);
+  const [cleanupType, setCleanupType] = useState<'all' | 'old' | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
-  const [pendingAction, setPendingAction] = useState<{cert: any, format: 'pdf' | 'docx' | 'email'} | null>(null);
+  const [pendingAction, setPendingAction] = useState<{cert?: any, format?: 'pdf' | 'email', type?: 'delete' | 'cleanup'} | null>(null);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -70,13 +73,54 @@ export function History({ user, onEdit }: { user: any, onEdit: (data: any) => vo
     return () => unsubscribe();
   }, [user]);
 
-  const handleGenerateClick = (cert: any, formatType: 'pdf' | 'docx' | 'email') => {
-    setPendingAction({ cert, format: formatType });
+  const handleGenerateClick = (cert: any, formatType: 'pdf' | 'email') => {
+    setPendingAction({ cert, format: formatType, type: 'cleanup' }); // Using 'cleanup' as a generic type for password prompt
     setShowPassword(true);
   };
 
+  const handleCleanupClick = (type: 'all' | 'old') => {
+    setCleanupType(type);
+    setPendingAction({ type: 'cleanup' });
+    setShowPassword(true);
+  };
+
+  const executeCleanup = async () => {
+    if (!cleanupType || !user?.uid) return;
+    
+    setLoading(true);
+    try {
+      let toDelete = [];
+      if (cleanupType === 'all') {
+        toDelete = [...certificates];
+      } else {
+        const twoYearsAgo = new Date();
+        twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+        toDelete = certificates.filter(c => {
+          const date = c.createdAt?.toDate() || new Date();
+          return date < twoYearsAgo;
+        });
+      }
+
+      if (toDelete.length === 0) {
+        toast.info("Aucun certificat à supprimer.");
+        return;
+      }
+
+      const promises = toDelete.map(c => deleteDoc(doc(db, 'certificates', c.id)));
+      await Promise.all(promises);
+      toast.success(`${toDelete.length} certificat(s) supprimé(s)`);
+    } catch (error) {
+      console.error("Error during cleanup:", error);
+      toast.error("Erreur lors du nettoyage");
+    } finally {
+      setLoading(false);
+      setCleanupType(null);
+      setPendingAction(null);
+    }
+  };
+
   const handleSendEmail = async (email: string) => {
-    if (!pendingAction || !templateBase64) return;
+    if (!pendingAction || !pendingAction.cert || !templateBase64) return;
     const { cert: data } = pendingAction;
     
     try {
@@ -151,8 +195,26 @@ export function History({ user, onEdit }: { user: any, onEdit: (data: any) => vo
     }
   };
 
-  const executeGeneration = async () => {
+  const executeAction = async () => {
     if (!pendingAction) return;
+    
+    if (pendingAction.type === 'cleanup') {
+      if (cleanupType) {
+        await executeCleanup();
+      } else if (pendingAction.cert && pendingAction.format) {
+        await executeGeneration();
+      }
+      return;
+    }
+    
+    // Legacy support for single generation
+    if (pendingAction.cert && pendingAction.format) {
+      await executeGeneration();
+    }
+  };
+
+  const executeGeneration = async () => {
+    if (!pendingAction || !pendingAction.cert || !pendingAction.format) return;
     const { cert: data, format: formatType } = pendingAction;
     
     if (formatType === 'email') {
@@ -191,11 +253,7 @@ export function History({ user, onEdit }: { user: any, onEdit: (data: any) => vo
           };
 
           const fileName = `Certificat_${data.patientLastName}_${format(new Date(), 'yyyyMMdd')}.${formatType}`;
-          if (formatType === 'pdf') {
-            await generateAndDownloadPDF(templateBase64, templateData, fileName, convertApiKey);
-          } else {
-            await generateAndDownloadDOCX(templateBase64, templateData, fileName);
-          }
+          await generateAndDownloadPDF(templateBase64, templateData, fileName, convertApiKey);
           return;
         } catch (error) {
           console.error(`Erreur avec le modèle ${formatType}:`, error);
@@ -253,7 +311,7 @@ export function History({ user, onEdit }: { user: any, onEdit: (data: any) => vo
       <PasswordPrompt 
         isOpen={showPassword} 
         onClose={() => setShowPassword(false)} 
-        onSuccess={executeGeneration} 
+        onSuccess={executeAction} 
       />
       <SendEmailModal
         isOpen={showEmailModal}
@@ -264,36 +322,58 @@ export function History({ user, onEdit }: { user: any, onEdit: (data: any) => vo
         onSend={handleSendEmail}
         patientName={pendingAction?.cert ? `${pendingAction.cert.patientFirstName} ${pendingAction.cert.patientLastName}` : ''}
       />
-      <div className="mb-6 sm:mb-8">
-        <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 tracking-tight">Historique</h2>
-        <p className="text-sm sm:text-base text-gray-500 mt-1 sm:mt-2">Tous vos certificats générés.</p>
+      <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white tracking-tight">Historique</h2>
+          <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-1 sm:mt-2">Tous vos certificats générés.</p>
+        </div>
+        
+        {certificates.length > 0 && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleCleanupClick('old')}
+              className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-300 hover:text-orange-600 dark:hover:text-orange-400 hover:border-orange-200 dark:hover:border-orange-800/50 rounded-xl text-sm font-medium transition-all"
+              title="Supprimer les certificats de plus de 2 ans"
+            >
+              <Filter className="w-4 h-4" />
+              Nettoyer (+2 ans)
+            </button>
+            <button
+              onClick={() => handleCleanupClick('all')}
+              className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-800/50 rounded-xl text-sm font-medium transition-all"
+            >
+              <Trash className="w-4 h-4" />
+              Tout supprimer
+            </button>
+          </div>
+        )}
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center p-12">
-          <div className="w-8 h-8 border-4 border-gray-900 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-4 border-gray-900 dark:border-white border-t-transparent dark:border-t-transparent rounded-full animate-spin" />
         </div>
       ) : certificates.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/40 border border-gray-100 p-12 text-center max-w-3xl">
-          <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
-            <FileText className="w-8 h-8 text-gray-400" />
+        <div className="bg-white dark:bg-gray-950 rounded-2xl shadow-xl shadow-gray-200/40 dark:shadow-none border border-gray-100 dark:border-gray-800 p-12 text-center max-w-3xl transition-colors duration-300">
+          <div className="w-16 h-16 bg-gray-50 dark:bg-gray-900/50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <FileText className="w-8 h-8 text-gray-400 dark:text-gray-500" />
           </div>
-          <h3 className="text-lg font-medium text-gray-900">Aucun certificat</h3>
-          <p className="text-gray-500 mt-1">Vous n'avez pas encore généré de certificat.</p>
+          <h3 className="text-lg font-medium text-gray-900 dark:text-white">Aucun certificat</h3>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">Vous n'avez pas encore généré de certificat.</p>
         </div>
       ) : (
         <div className="grid gap-4 max-w-3xl">
           {certificates.map((cert) => (
-            <div key={cert.id} className="bg-white rounded-2xl shadow-sm hover:shadow-xl hover:shadow-gray-200/40 border border-gray-100 p-4 sm:p-6 transition-all duration-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 group">
+            <div key={cert.id} className="bg-white dark:bg-gray-950 rounded-2xl shadow-sm hover:shadow-xl hover:shadow-gray-200/40 dark:hover:shadow-none border border-gray-100 dark:border-gray-800 p-4 sm:p-6 transition-all duration-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 group">
               <div className="flex items-start gap-3 sm:gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-50 rounded-xl flex items-center justify-center shrink-0">
-                  <FileText className="w-5 h-5 sm:w-6 sm:h-6 text-gray-600" />
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-50 dark:bg-gray-900/50 rounded-xl flex items-center justify-center shrink-0">
+                  <FileText className="w-5 h-5 sm:w-6 sm:h-6 text-gray-600 dark:text-gray-400" />
                 </div>
                 <div>
-                  <h4 className="text-base sm:text-lg font-medium text-gray-900">
+                  <h4 className="text-base sm:text-lg font-medium text-gray-900 dark:text-white">
                     {cert.patientFirstName} {cert.patientLastName}
                   </h4>
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 mt-1 sm:mt-2 text-xs sm:text-sm text-gray-500">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 mt-1 sm:mt-2 text-xs sm:text-sm text-gray-500 dark:text-gray-400">
                     <span className="flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                       {cert.createdAt ? format(cert.createdAt.toDate(), 'dd/MM/yyyy', { locale: fr }) : 'Date inconnue'}
@@ -308,28 +388,16 @@ export function History({ user, onEdit }: { user: any, onEdit: (data: any) => vo
               <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto mt-3 sm:mt-0">
                 <button
                   onClick={() => handleEdit(cert)}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 hover:border-blue-600 text-gray-700 hover:text-blue-600 rounded-lg font-medium transition-colors duration-200 text-sm"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 hover:border-blue-600 dark:hover:border-blue-500 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg font-medium transition-colors duration-200 text-sm"
                   title="Modifier"
                 >
                   <Pencil className="w-4 h-4" />
                   Modifier
                 </button>
                 <button
-                  onClick={() => handleGenerateClick(cert, 'docx')}
-                  disabled={generatingId === cert.id}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 hover:border-gray-900 text-gray-700 hover:text-gray-900 rounded-lg font-medium transition-colors duration-200 disabled:opacity-70 disabled:cursor-not-allowed text-sm"
-                >
-                  {generatingId === cert.id && generatingFormat === 'docx' ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <FileText className="w-4 h-4" />
-                  )}
-                  Word
-                </button>
-                <button
                   onClick={() => handleGenerateClick(cert, 'pdf')}
                   disabled={generatingId === cert.id}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-white border border-gray-200 hover:border-gray-900 text-gray-700 hover:text-gray-900 rounded-lg font-medium transition-colors duration-200 disabled:opacity-70 disabled:cursor-not-allowed text-sm"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 hover:border-gray-900 dark:hover:border-gray-500 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white rounded-lg font-medium transition-colors duration-200 disabled:opacity-70 disabled:cursor-not-allowed text-sm"
                 >
                   {generatingId === cert.id && generatingFormat === 'pdf' ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -341,7 +409,7 @@ export function History({ user, onEdit }: { user: any, onEdit: (data: any) => vo
                 <button
                   onClick={() => handleGenerateClick(cert, 'email')}
                   disabled={generatingId === cert.id}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-900 text-gray-700 hover:text-white rounded-lg font-medium transition-colors duration-200 disabled:opacity-70 disabled:cursor-not-allowed text-sm"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 hover:bg-gray-900 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 hover:text-white rounded-lg font-medium transition-colors duration-200 disabled:opacity-70 disabled:cursor-not-allowed text-sm active:scale-95"
                 >
                   <Mail className="w-4 h-4" />
                   Email
@@ -356,7 +424,7 @@ export function History({ user, onEdit }: { user: any, onEdit: (data: any) => vo
                     </button>
                     <button
                       onClick={() => setDeleteConfirmId(null)}
-                      className="flex-1 sm:flex-none flex items-center justify-center px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors duration-200 text-sm"
+                      className="flex-1 sm:flex-none flex items-center justify-center px-3 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg font-medium transition-colors duration-200 text-sm"
                     >
                       Annuler
                     </button>
@@ -364,7 +432,7 @@ export function History({ user, onEdit }: { user: any, onEdit: (data: any) => vo
                 ) : (
                   <button
                     onClick={() => setDeleteConfirmId(cert.id)}
-                    className="flex-1 sm:flex-none flex items-center justify-center p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    className="flex-1 sm:flex-none flex items-center justify-center p-2 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors"
                     title="Supprimer"
                   >
                     <Trash2 className="w-4 h-4" />

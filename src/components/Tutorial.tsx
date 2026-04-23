@@ -61,7 +61,7 @@ export function Tutorial({ onComplete }: TutorialProps) {
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden relative flex flex-col max-h-[90vh]"
+        className="bg-white dark:bg-gray-950 rounded-3xl shadow-2xl dark:shadow-none border border-transparent dark:border-gray-800 w-full max-w-md overflow-hidden relative flex flex-col max-h-[90vh]"
       >
         <div className="p-6 sm:p-8 overflow-y-auto">
           {/* Progress indicators */}
@@ -71,7 +71,7 @@ export function Tutorial({ onComplete }: TutorialProps) {
                 key={index}
                 className={cn(
                   "h-1.5 rounded-full flex-1 transition-all duration-300",
-                  index === currentStep ? "bg-gray-900" : index < currentStep ? "bg-gray-300" : "bg-gray-100"
+                  index === currentStep ? "bg-gray-900 dark:bg-white" : index < currentStep ? "bg-gray-300 dark:bg-gray-600" : "bg-gray-100 dark:bg-gray-800"
                 )}
               />
             ))}
@@ -86,32 +86,32 @@ export function Tutorial({ onComplete }: TutorialProps) {
               transition={{ duration: 0.2 }}
               className="flex flex-col items-center text-center"
             >
-              <div className={cn("w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center mb-5 sm:mb-6", steps[currentStep].bgColor)}>
+              <div className={cn("w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center mb-5 sm:mb-6", steps[currentStep].bgColor, "dark:bg-opacity-20")}>
                 <CurrentIcon className={cn("w-8 h-8 sm:w-10 sm:h-10", steps[currentStep].color)} />
               </div>
               
-              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2 sm:mb-3">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-2 sm:mb-3">
                 {steps[currentStep].title}
               </h2>
               
-              <p className="text-sm sm:text-base text-gray-500 leading-relaxed">
+              <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 leading-relaxed">
                 {steps[currentStep].description}
               </p>
             </motion.div>
           </AnimatePresence>
         </div>
 
-        <div className="p-4 sm:p-6 bg-gray-50 border-t border-gray-100 flex justify-between items-center mt-auto">
+        <div className="p-4 sm:p-6 bg-gray-50 dark:bg-gray-900/50 border-t border-gray-100 dark:border-gray-800 flex justify-between items-center mt-auto">
           <button
             onClick={onComplete}
-            className="text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors px-2 sm:px-4 py-2"
+            className="text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors px-2 sm:px-4 py-2"
           >
             Passer
           </button>
           
           <button
             onClick={handleNext}
-            className="flex items-center gap-2 bg-gray-900 text-white px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl font-medium hover:bg-gray-800 transition-all shadow-md shadow-gray-900/10 text-sm sm:text-base"
+            className="flex items-center gap-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition-all shadow-md shadow-gray-900/10 dark:shadow-white/10 text-sm sm:text-base"
           >
             {currentStep === steps.length - 1 ? (
               <>

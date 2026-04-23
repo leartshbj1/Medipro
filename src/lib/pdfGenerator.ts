@@ -97,19 +97,18 @@ export async function generatePDFBlob(
   // 2. Render DOCX to HTML (Fallback)
   const container = document.createElement('div');
   container.style.position = 'absolute';
-  container.style.top = '0';
   container.style.left = '0';
+  container.style.top = '0';
   container.style.width = '210mm';
-  container.style.minHeight = '297mm';
-  container.style.backgroundColor = 'white';
-  container.style.zIndex = '-1000';
-  container.style.color = 'black';
+  container.style.backgroundColor = '#ffffff';
+  container.style.zIndex = '-9999';
+  container.style.pointerEvents = 'none';
   document.body.appendChild(container);
 
   try {
     await renderAsync(docxBlob, container, null, {
       className: 'docx',
-      inWrapper: true,
+      inWrapper: false,
       ignoreWidth: false,
       ignoreHeight: false,
       ignoreFonts: false,
@@ -122,21 +121,27 @@ export async function generatePDFBlob(
 
     const section = (container.querySelector('section.docx') as HTMLElement) || container;
     
+    // Ensure section has no shadows/margins that mess up html2pdf
+    section.style.boxShadow = 'none';
+    section.style.margin = '0';
+    section.style.padding = '10mm 15mm'; // typical A4 padding, or adjust as needed if the docx doesn't bring its own padding
+    
+    // Wait a brief moment to allow DOM to reflow, fonts to load, and images to decode
+    await new Promise(resolve => setTimeout(resolve, 800));
+
     // 3. Convert HTML to PDF
     const opt = {
       margin:       0,
-      image:        { type: 'jpeg' as const, quality: 1 },
+      image:        { type: 'jpeg', quality: 1 },
       html2canvas:  { 
         scale: 2, 
         useCORS: true, 
         logging: false,
-        scrollY: 0,
-        backgroundColor: '#ffffff'
       },
-      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' as const }
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
 
-    const pdf = await html2pdf().set(opt).from(section).output('blob');
+    const pdf = await html2pdf().set(opt).from(section).outputPdf('blob');
     return pdf;
   } finally {
     document.body.removeChild(container);

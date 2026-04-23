@@ -48,48 +48,48 @@ export function SendEmailModal({ isOpen, onClose, onSend, patientName }: SendEma
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden"
+            className="bg-white dark:bg-gray-950 rounded-2xl shadow-xl dark:shadow-none border border-transparent dark:border-gray-800 w-full max-w-sm overflow-hidden"
           >
             <div className="p-6">
               <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center gap-2 text-gray-900">
+                <div className="flex items-center gap-2 text-gray-900 dark:text-white">
                   <Mail className="w-5 h-5" />
                   <h3 className="font-semibold text-lg">Envoyer par email</h3>
                 </div>
-                <button onClick={onClose} disabled={loading} className="text-gray-400 hover:text-gray-600 disabled:opacity-50">
+                <button onClick={onClose} disabled={loading} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-50 transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <p className="text-sm text-gray-500 mb-4">
-                Envoyez le certificat de <strong>{patientName}</strong> directement par email.
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                Envoyez le certificat de <strong className="text-gray-900 dark:text-white">{patientName}</strong> directement par email.
               </p>
               <form onSubmit={handleSubmit}>
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-gray-700 uppercase tracking-wider">Adresse email du destinataire</label>
+                  <label className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">Adresse email du destinataire</label>
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="patient@exemple.com"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-gray-900 focus:border-transparent outline-none transition-all"
+                    className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/20 focus:border-transparent outline-none transition-all placeholder:text-gray-400 dark:placeholder:text-gray-600"
                     autoFocus
                     disabled={loading}
                   />
                 </div>
-                {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+                {error && <p className="text-red-500 dark:text-red-400 text-sm mt-2">{error}</p>}
                 <div className="flex gap-2 mt-6">
                   <button
                     type="button"
                     onClick={onClose}
                     disabled={loading}
-                    className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors disabled:opacity-50"
+                    className="flex-1 px-4 py-2.5 bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 rounded-xl font-medium hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 border border-transparent dark:border-gray-800"
                   >
                     Annuler
                   </button>
                   <button
                     type="submit"
                     disabled={loading}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-900 text-white rounded-xl font-medium hover:bg-gray-800 transition-colors disabled:opacity-70"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors disabled:opacity-70"
                   >
                     {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Send className="w-4 h-4" /> Envoyer</>}
                   </button>
